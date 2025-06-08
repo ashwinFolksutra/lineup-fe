@@ -1,0 +1,71 @@
+/* AudioClip.css */
+.audio-clip {
+    position: absolute;
+    height: 100%;
+    background-color: #4caf50;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    cursor: grab;
+    transition: box-shadow 0.2s ease;
+  }
+  
+  .audio-clip:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  }
+  
+  .audio-clip.dragging {
+    cursor: grabbing;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+  
+  .audio-clip.resizing {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    z-index: 10;
+  }
+  
+  .clip-body {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 10px;
+    color: white;
+    font-size: 12px;
+    user-select: none;
+    pointer-events: none;
+  }
+  
+  .clip-name {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+  
+  .clip-time {
+    opacity: 0.8;
+  }
+  
+  .resize-handle {
+    width: 6px;
+    height: 100%;
+    background-color: #2e7d32;
+    cursor: ew-resize;
+    transition: background-color 0.2s ease;
+  }
+  
+  .resize-handle:hover {
+    background-color: #1b5e20;
+  }
+  
+  .resize-handle.left {
+    border-right: 1px solid #1b5e20;
+  }
+  
+  .resize-handle.right {
+    border-left: 1px solid #1b5e20;
+  }
