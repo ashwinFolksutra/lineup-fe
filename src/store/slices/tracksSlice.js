@@ -149,27 +149,34 @@ const tracksSlice = createSlice({
             // Calculate split
             const firstClipDuration = currentTime - clipStart;
             const secondClipDuration = clipEnd - currentTime;
-            const originalAudioOffset = clip.audioOffset || 0;
-            const splitPointInOriginalAudio = originalAudioOffset + firstClipDuration;
             
-            const firstClip = {
-              ...clip,
-              duration: firstClipDuration,
-              audioOffset: originalAudioOffset
-            };
+            // Minimum segment size to prevent creating too small clips
+            const minSegmentSize = 0.1; // 0.1 seconds minimum
             
-            const secondClip = {
-              ...clip,
-              id: Date.now().toString() + Math.random(),
-              start: currentTime,
-              startTime: currentTime,
-              duration: secondClipDuration,
-              name: clip.name + ' (Split)',
-              audioOffset: splitPointInOriginalAudio
-            };
-            
-            // Replace the original clip with the two new clips
-            track.clips.splice(clipIndex, 1, firstClip, secondClip);
+            // Only split if both segments would be large enough
+            if (firstClipDuration >= minSegmentSize && secondClipDuration >= minSegmentSize) {
+              const originalAudioOffset = clip.audioOffset || 0;
+              const splitPointInOriginalAudio = originalAudioOffset + firstClipDuration;
+              
+              const firstClip = {
+                ...clip,
+                duration: firstClipDuration,
+                audioOffset: originalAudioOffset
+              };
+              
+              const secondClip = {
+                ...clip,
+                id: Date.now().toString() + Math.random(),
+                start: currentTime,
+                startTime: currentTime,
+                duration: secondClipDuration,
+                name: clip.name + ' (Split)',
+                audioOffset: splitPointInOriginalAudio
+              };
+              
+              // Replace the original clip with the two new clips
+              track.clips.splice(clipIndex, 1, firstClip, secondClip);
+            }
           }
         }
       });

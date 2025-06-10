@@ -57,13 +57,15 @@ export const useAudioPlayer = () => {
   }, []);
 
   const stopAllAudios = useCallback(() => {
-    playingAudios.forEach(audio => {
-      if (!audio.paused) {
-        audio.pause();
-      }
+    setPlayingAudios(prevAudios => {
+      prevAudios.forEach(audio => {
+        if (!audio.paused) {
+          audio.pause();
+        }
+      });
+      return new Map();
     });
-    setPlayingAudios(new Map());
-  }, [playingAudios]);
+  }, []);
 
   // Audio sync functionality
   const handleAudioSync = useCallback((currentTime) => {
@@ -84,6 +86,21 @@ export const useAudioPlayer = () => {
     });
   }, [audioClips, playingAudios, playAudioClip]);
 
+  // Handle stopping audio when playback stops
+  useEffect(() => {
+    if (!isPlaying) {
+      // Stop all audios directly without using the callback
+      setPlayingAudios(prevAudios => {
+        prevAudios.forEach(audio => {
+          if (!audio.paused) {
+            audio.pause();
+          }
+        });
+        return new Map();
+      });
+    }
+  }, [isPlaying]);
+
   // Handle timeline-based playback
   useEffect(() => {
     let intervalRef;
@@ -93,7 +110,15 @@ export const useAudioPlayer = () => {
         const newTime = currentTime + 0.05;
         if (newTime >= duration) {
           dispatch(setIsPlaying(false));
-          stopAllAudios();
+          // Stop audios directly here too
+          setPlayingAudios(prevAudios => {
+            prevAudios.forEach(audio => {
+              if (!audio.paused) {
+                audio.pause();
+              }
+            });
+            return new Map();
+          });
           dispatch(setCurrentTime(0));
         } else {
           dispatch(setCurrentTime(newTime));
@@ -107,7 +132,7 @@ export const useAudioPlayer = () => {
         clearInterval(intervalRef);
       }
     };
-  }, [isPlaying, duration, currentTime, handleAudioSync, stopAllAudios, dispatch]);
+  }, [isPlaying, duration, currentTime, handleAudioSync, dispatch]);
 
   return {
     audioClips,

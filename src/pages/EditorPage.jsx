@@ -3,6 +3,17 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useParams, useNavigate } from 'react-router-dom';
 import { setZoomLevel } from '../store/slices/tracksSlice';
 
+// Catalyst Components
+import { Button } from '../components/button';
+import { Badge } from '../components/badge';
+import { Heading } from '../components/heading';
+import { 
+  Dropdown,
+  DropdownButton,
+  DropdownItem,
+  DropdownMenu,
+} from '../components/dropdown';
+
 // Components
 import Timeline from '../components/Timeline';
 import VideoPreview from '../components/VideoPreview';
@@ -19,6 +30,15 @@ import { handleApiError } from '../services/api';
 // Utils
 import { formatTime } from '../utils/timeFormat';
 
+// Icons
+import {
+  ArrowLeftIcon,
+  ShareIcon,
+  ArrowDownTrayIcon,
+  EllipsisVerticalIcon,
+  Cog6ToothIcon,
+} from '@heroicons/react/24/outline';
+
 const EditorPage = () => {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -26,7 +46,10 @@ const EditorPage = () => {
   const dispatch = useDispatch();
   
   // Redux state
-  const { zoomLevel, duration } = useSelector(state => state.tracks);
+  const { zoomLevel, duration, tracks } = useSelector(state => state.tracks);
+  
+  // Check if there are any clips anywhere
+  const hasAnyClips = tracks.some(track => track.clips && track.clips.length > 0);
   
   // Local state
   const [videoFile] = useState('/sample.mp4');
@@ -92,101 +115,104 @@ const EditorPage = () => {
     return () => clearInterval(autoSaveInterval);
   }, [projectId, project]);
 
-  // Zoom controls
-  const handleFitView = () => {
-    const timelineContainer = scrollContainerRef?.current || document.querySelector('[ref="scrollContainerRef"]');
-    if (timelineContainer && duration > 0) {
-      const containerWidth = timelineContainer.clientWidth;
-      const newZoom = containerWidth / (duration * 80);
-      dispatch(setZoomLevel(Math.max(0.1, Math.min(5, newZoom))));
-    }
-  };
-
-  const handleZoomIn = () => {
-    dispatch(setZoomLevel(Math.min(5, zoomLevel * 1.2)));
-  };
-
-  const handleZoomOut = () => {
-    dispatch(setZoomLevel(Math.max(0.1, zoomLevel / 1.2)));
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-surface-950 via-surface-900 to-surface-800 text-neutral-100 flex items-center justify-center">
+      <div className="h-screen bg-white dark:bg-zinc-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p>Loading project...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+          <p className="text-zinc-600 dark:text-zinc-400">Loading project...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-surface-950 via-surface-900 to-surface-800 text-neutral-100 overflow-hidden">
-      {/* Enhanced Background Pattern */}
-      <div className="absolute inset-0">
-        {/* Primary gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-900/20 via-surface-900/40 to-violet-900/20"></div>
-        {/* Sophisticated pattern overlay */}
-        <div className="absolute inset-0" style={{
-          backgroundImage: `
-            radial-gradient(circle at 20% 30%, rgba(49, 130, 206, 0.15) 0%, transparent 60%), 
-            radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
-            radial-gradient(circle at 40% 80%, rgba(245, 158, 11, 0.08) 0%, transparent 50%)
-          `
-        }}></div>
-        {/* Subtle noise texture */}
-        <div className="absolute inset-0 opacity-30" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
-          backgroundSize: '200px 200px'
-        }}></div>
-      </div>
-      
-      {/* Main Container */}
-      <div className="relative z-10 flex flex-col h-screen">
-        {/* Project Header (if project is loaded) */}
-        {project && (
-          <div className="bg-surface-800/30 backdrop-blur-sm border-b border-white/10 px-6 py-3">
-            <div className="flex justify-between items-center">
-              <h1 className="text-lg font-semibold text-white">{project.name}</h1>
-              <div className="flex items-center space-x-4">
-                <button className="text-neutral-300 hover:text-white text-sm font-medium transition-colors duration-200">
-                  Save
-                </button>
-                <button className="text-neutral-300 hover:text-white text-sm font-medium transition-colors duration-200">
-                  Export
-                </button>
-              </div>
-            </div>
+    <div className="h-screen bg-white dark:bg-zinc-900 flex flex-col overflow-hidden">
+      {/* Top Header */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
+        <div className="flex items-center gap-4">
+          <Button plain onClick={() => navigate('/projects')}>
+            <ArrowLeftIcon className="w-4 h-4" />
+            Back to Projects
+          </Button>
+          
+          <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600" />
+          
+          <div>
+            <Heading level={1} className="text-lg">
+              {project?.name || 'Untitled Project'}
+            </Heading>
+            {project?.context && (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-0.5">
+                {project.context}
+              </p>
+            )}
           </div>
-        )}
-        
-        {/* Video Preview Section */}
-        <VideoPreview 
-          ref={videoRef}
-          videoFile={videoFile}
-          isPlaying={isPlaying}
-          togglePlay={togglePlay}
-          currentTime={currentTime}
-          duration={duration}
-          formatTime={formatTime}
-          onSeek={seekTo}
-        />
+          
+          <Badge color="lime">Active</Badge>
+        </div>
 
-        {/* Timeline Section */}
-        <div className="flex-shrink-0">
-          {/* Timeline Container with enhanced glass effect */}
-          <div className="backdrop-blur-xl bg-gradient-to-r from-surface-800/60 via-surface-700/40 to-surface-800/60 border-t border-white/10 shadow-inner-glass">
-            <Timeline 
-              currentTime={currentTime} 
+        <div className="flex items-center gap-3">
+          <Button size="sm" outline>
+            <ShareIcon className="w-4 h-4" />
+            Share
+          </Button>
+          
+          <Button size="sm" color="indigo">
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            Export
+          </Button>
+
+          <Dropdown>
+            <DropdownButton plain>
+              <EllipsisVerticalIcon className="w-5 h-5" />
+            </DropdownButton>
+            <DropdownMenu anchor="bottom end">
+              <DropdownItem>
+                <Cog6ToothIcon className="w-4 h-4" />
+                Project Settings
+              </DropdownItem>
+              <DropdownItem>Save As Template</DropdownItem>
+              <DropdownItem>Duplicate Project</DropdownItem>
+              <DropdownItem>Delete Project</DropdownItem>
+            </DropdownMenu>
+          </Dropdown>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        
+        {/* Conditional Video Preview Section - Only show when there are clips */}
+        {hasAnyClips && (
+          <div className="h-120 flex flex-col min-w-0 bg-zinc-50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800">
+            <VideoPreview 
+              ref={videoRef}
+              videoFile={videoFile}
+              isPlaying={isPlaying}
+              togglePlay={togglePlay}
+              currentTime={currentTime}
               duration={duration}
+              formatTime={formatTime}
               onSeek={seekTo}
-              zoomLevel={zoomLevel}
-              onZoomChange={(newZoom) => dispatch(setZoomLevel(newZoom))}
-              scrollContainerRef={scrollContainerRef}
-              projectId={projectId}
             />
           </div>
+        )}
+
+        {/* Timeline Section */}
+        <div className="h-auto">
+          <Timeline 
+            currentTime={currentTime} 
+            duration={duration}
+            onSeek={seekTo}
+            zoomLevel={zoomLevel}
+            onZoomChange={(newZoom) => dispatch(setZoomLevel(newZoom))}
+            scrollContainerRef={scrollContainerRef}
+            projectId={projectId}
+            isPlaying={isPlaying}
+            togglePlay={togglePlay}
+            videoCurrentTime={currentTime}
+          />
         </div>
       </div>
     </div>

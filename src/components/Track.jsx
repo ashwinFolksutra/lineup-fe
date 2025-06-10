@@ -5,7 +5,9 @@ import VideoTrack from './VideoTrack';
 import { 
   updateClip, 
   addMultipleClipsToTrack, 
-  selectClip 
+  selectClip,
+  clearSelection,
+  addClipToTrack
 } from '../store/slices/tracksSlice';
 
 const Track = ({ 
@@ -44,71 +46,34 @@ const Track = ({
   // Handle mouse events for clip dragging and resizing
   useEffect(() => {
     // Helper function to check for clip collisions
-    const findNonOverlappingPosition = (draggedClipId, newStartTime, clipDuration) => {
+    const findValidPosition = (draggedClipId, requestedStartTime, clipDuration) => {
       const otherClips = clips.filter(clip => clip.id !== draggedClipId);
       
-      // Sort clips by start time for easier collision detection
-      const sortedClips = otherClips.sort((a, b) => 
-        (a.start || a.startTime || 0) - (b.start || b.startTime || 0)
-      );
-      
-      let candidateStart = Math.max(0, newStartTime);
+      let candidateStart = Math.max(0, requestedStartTime);
       const candidateEnd = candidateStart + clipDuration;
       
-      // Check for collisions and find the nearest available position
-      for (const clip of sortedClips) {
+      // Check for collisions and constrain position to prevent overlap
+      for (const clip of otherClips) {
         const clipStart = clip.start || clip.startTime || 0;
         const clipEnd = clipStart + (clip.duration || 10);
         
-        // Check if candidate position overlaps with this clip
+        // If candidate would overlap with this clip
         if (candidateStart < clipEnd && candidateEnd > clipStart) {
-          // Try to place after this clip
-          const afterClipStart = clipEnd;
-          const afterClipEnd = afterClipStart + clipDuration;
+          // Determine which boundary to respect based on drag direction
+          const draggedClipOriginalStart = draggedClip?.start || draggedClip?.startTime || 0;
           
-          // Check if placing after this clip would conflict with the next clip
-          let canPlaceAfter = true;
-          for (const nextClip of sortedClips) {
-            const nextClipStart = nextClip.start || nextClip.startTime || 0;
-            const nextClipEnd = nextClipStart + (nextClip.duration || 10);
-            
-            if (nextClipStart > clipEnd && afterClipStart < nextClipEnd && afterClipEnd > nextClipStart) {
-              canPlaceAfter = false;
-              break;
-            }
-          }
-          
-          if (canPlaceAfter) {
-            candidateStart = afterClipStart;
-            break;
+          if (requestedStartTime > draggedClipOriginalStart) {
+            // Dragging right - stop at left edge of obstacle
+            candidateStart = Math.max(0, clipStart - clipDuration);
           } else {
-            // Try to place before this clip
-            const beforeClipEnd = clipStart;
-            const beforeClipStart = beforeClipEnd - clipDuration;
-            
-            if (beforeClipStart >= 0) {
-              // Check if placing before this clip would conflict with previous clips
-              let canPlaceBefore = true;
-              for (const prevClip of sortedClips) {
-                const prevClipStart = prevClip.start || prevClip.startTime || 0;
-                const prevClipEnd = prevClipStart + (prevClip.duration || 10);
-                
-                if (prevClipEnd <= clipStart && beforeClipStart < prevClipEnd && beforeClipEnd > prevClipStart) {
-                  canPlaceBefore = false;
-                  break;
-                }
-              }
-              
-              if (canPlaceBefore) {
-                candidateStart = beforeClipStart;
-                break;
-              }
-            }
+            // Dragging left - stop at right edge of obstacle  
+            candidateStart = clipEnd;
           }
+          break;
         }
       }
       
-      return candidateStart;
+      return Math.max(0, candidateStart);
     };
 
     const handleMouseMove = (e) => {
@@ -116,18 +81,21 @@ const Track = ({
         e.preventDefault();
         e.stopPropagation();
         
-        const rect = trackContentRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left - dragOffset;
-        const rawStartTime = x / pixelsPerSecond;
-        
-        // Use collision detection to find a valid position
-        const clipDuration = draggedClip.duration || 10;
-        const newStartTime = findNonOverlappingPosition(draggedClip.id, rawStartTime, clipDuration);
-        const newLeft = newStartTime * pixelsPerSecond;
-        
-        const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
+        requestAnimationFrame(() => {
+          const rect = trackContentRef.current.getBoundingClientRect();
+          const x = e.clientX - rect.left - dragOffset;
+          const rawStartTime = x / pixelsPerSecond;
+          
+          // Use collision detection to find a valid position
+          const clipDuration = draggedClip.duration || 10;
+          const newStartTime = findValidPosition(draggedClip.id, rawStartTime, clipDuration);
+          const newLeft = newStartTime * pixelsPerSecond;
+          
+                  const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
         if (clipElement) {
+          // Use direct positioning for accurate visual feedback
           clipElement.style.left = `${newLeft}px`;
+          clipElement.style.transition = 'none'; // Disable transitions during drag
           
           setTempClipStyles(prev => new Map(prev.set(draggedClip.id, {
             start: newStartTime,
@@ -135,13 +103,15 @@ const Track = ({
             left: newLeft
           })));
         }
+        });
       } else if (resizeState) {
         e.preventDefault();
         e.stopPropagation();
         
-        const rect = trackContentRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const timePosition = x / pixelsPerSecond;
+        requestAnimationFrame(() => {
+          const rect = trackContentRef.current.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const timePosition = x / pixelsPerSecond;
         
         const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${resizeState.clipId}"]`);
         if (!clipElement) return;
@@ -163,8 +133,10 @@ const Track = ({
           }
           
           const finalDuration = Math.min(newDuration, maxAllowedDuration);
-          const newWidth = Math.max(80, finalDuration * pixelsPerSecond);
+          const newWidth = Math.max(10, finalDuration * pixelsPerSecond);
+          // Use direct width change for accurate visual feedback
           clipElement.style.width = `${newWidth}px`;
+          clipElement.style.transition = 'none'; // Disable transitions during resize
           
           setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
             duration: finalDuration,
@@ -189,7 +161,7 @@ const Track = ({
           newStart = Math.max(newStart, Math.min(minAllowedStart, maxStart));
           const newDuration = resizeState.originalStart + resizeState.originalDuration - newStart;
           const newLeft = newStart * pixelsPerSecond;
-          const newWidth = Math.max(80, newDuration * pixelsPerSecond);
+          const newWidth = Math.max(10, newDuration * pixelsPerSecond);
           
           const trimmedAmount = newStart - resizeState.originalStart;
           const newAudioOffset = Math.max(0, (resizeState.originalAudioOffset || 0) + trimmedAmount);
@@ -203,8 +175,10 @@ const Track = ({
             newDuration: newDuration
           });
           
+          // Use direct positioning and width change for accurate visual feedback
           clipElement.style.left = `${newLeft}px`;
           clipElement.style.width = `${newWidth}px`;
+          clipElement.style.transition = 'none'; // Disable transitions during resize
           
           setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
             start: newStart,
@@ -215,6 +189,7 @@ const Track = ({
             width: newWidth
           })));
         }
+        });
       }
     };
 
@@ -230,6 +205,13 @@ const Track = ({
           const updates = {};
           if (tempStyle.start !== undefined) updates.start = tempStyle.start;
           if (tempStyle.startTime !== undefined) updates.startTime = tempStyle.startTime;
+          
+          // Re-enable transitions and ensure final position
+          const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
+          if (clipElement) {
+            clipElement.style.transition = ''; // Re-enable transitions
+            clipElement.style.left = `${tempStyle.left}px`;
+          }
           
           dispatch(updateClip({ trackId, clipId: draggedClip.id, updates }));
           
@@ -249,6 +231,14 @@ const Track = ({
           if (tempStyle.startTime !== undefined) updates.startTime = tempStyle.startTime;
           if (tempStyle.duration !== undefined) updates.duration = tempStyle.duration;
           if (tempStyle.audioOffset !== undefined) updates.audioOffset = tempStyle.audioOffset;
+          
+          // Re-enable transitions and ensure final dimensions
+          const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${resizeState.clipId}"]`);
+          if (clipElement) {
+            clipElement.style.transition = ''; // Re-enable transitions
+            if (tempStyle.left !== undefined) clipElement.style.left = `${tempStyle.left}px`;
+            if (tempStyle.width !== undefined) clipElement.style.width = `${tempStyle.width}px`;
+          }
           
           dispatch(updateClip({ trackId, clipId: resizeState.clipId, updates }));
           
@@ -345,14 +335,16 @@ const Track = ({
     setDragOffset(offsetX);
   };
 
-  const handleClipClick = (e) => {
+  const handleClipClick = (e, clip) => {
     e.preventDefault();
     e.stopPropagation();
+    // Select the clicked clip
+    dispatch(selectClip({ clipId: clip.id }));
   };
 
   const handleTrackClick = (e) => {
     if (e.target === e.currentTarget && !draggedClip && !resizeState) {
-      dispatch(selectClip({ clipId: null }));
+      dispatch(clearSelection());
     }
   };
 
@@ -433,34 +425,65 @@ const Track = ({
   const colors = getTrackColors(trackType);
 
   return (
-    <div className="relative h-12 backdrop-blur-md bg-gradient-to-r from-surface-800/30 via-surface-700/20 to-surface-800/30 border-b border-neutral-200/10 hover:bg-gradient-to-r hover:from-surface-700/40 hover:via-surface-600/30 hover:to-surface-700/40 transition-all duration-300">
+    <div className="relative h-12 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors duration-200">
       <div 
         className="h-full relative group"
         ref={trackContentRef}
         onDrop={handleFileDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={handleTrackClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (trackType === 'video') {
+            // Calculate position where the user right-clicked
+            const rect = trackContentRef.current.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const timePosition = x / pixelsPerSecond;
+            
+            // Create a placeholder clip
+            const placeholderClip = {
+              id: Date.now().toString(),
+              name: 'Video Placeholder',
+              start: Math.max(0, timePosition),
+              startTime: Math.max(0, timePosition),
+              duration: 5, // Default 5 seconds
+              isPlaceholder: true,
+              placeholderType: 'video'
+            };
+            
+            dispatch(addClipToTrack({ 
+              trackId: trackId, 
+              clip: placeholderClip 
+            }));
+          }
+        }}
       >
-        {/* Enhanced Track Label */}
-        {clips.length == 0 && (
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
-            <div className={`backdrop-blur-md bg-gradient-to-r ${colors.label} ${colors.border} border rounded-lg px-2.5 py-1 shadow-inner-glass`}>
-              <span className={`text-xs font-semibold ${colors.text} tracking-wide`}>{label}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Enhanced Drop Zone Placeholder */}
-        {clips.length === 0 && !hasAnyClips && (
-          <div className="absolute cursor-default inset-0 left-0 right-0 flex items-center justify-center w-full transition-transform duration-300">
-            <div className="backdrop-blur-md bg-gradient-to-r from-neutral-100/5 to-neutral-100/10 border border-dashed border-neutral-200/30 rounded-lg px-6 py-2 transition-all duration-300 hover:border-neutral-200/50 hover:bg-gradient-to-r hover:from-neutral-100/10 hover:to-neutral-100/15 hover:shadow-glass">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-primary-400/40 to-primary-600/60 flex items-center justify-center">
-                  <span className="text-primary-200 text-xs">🎵</span>
+        {/* Track is always visible with drop zone when empty */}
+        {clips.length === 0 && (
+          <div className="absolute inset-2 flex items-center justify-center">
+            <div className="rounded-lg px-6 w-full text-center hover:border-zinc-400 dark:hover:border-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors duration-200">
+              <div className="flex gap-3">
+                <div className="flex items-center gap-2">
+                  {trackType === 'video' ? (
+                    <>
+                      <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                        {label} - Right-click to add placeholder
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                      </svg>
+                      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                        {label} - Drop audio files here
+                      </span>
+                    </>
+                  )}
                 </div>
-                <span className="text-neutral-300 text-xs font-medium">
-                  Drop audio files here or click to add
-                </span>
               </div>
             </div>
           </div>
@@ -476,64 +499,68 @@ const Track = ({
           
           const tempStyle = tempClipStyles.get(clip.id);
           const finalLeft = tempStyle?.left !== undefined ? tempStyle.left : (isNaN(startPos) ? 0 : startPos);
-          const finalWidth = tempStyle?.width !== undefined ? tempStyle.width : (isNaN(clipWidth) ? 80 : Math.max(clipWidth, 80));
+          const finalWidth = tempStyle?.width !== undefined ? tempStyle.width : (isNaN(clipWidth) ? 10 : Math.max(clipWidth, 10));
           
           return (
             <div
               key={clip.id}
               data-clip-id={clip.id}
-              className={`absolute top-1 bottom-1 cursor-grab select-none group backdrop-blur-lg bg-gradient-to-r ${colors.bg} hover:${colors.bgHover} ${colors.border} hover:${colors.borderHover} border rounded-lg hover:z-10 shadow-glass hover:shadow-glass-lg transition-all duration-300 ${
-                isSelected ? `ring-2 ring-primary-400/60 ${colors.glow} bg-gradient-to-r ${colors.bgHover}` : ''
-              } ${isDragging ? 'cursor-grabbing z-20' : ''} ${isResizing ? `z-20 ring-2 ring-accent-400/60 ${colors.glow}` : ''}`}
+              className={`absolute top-0 bottom-0 cursor-grab select-none group border transition-all duration-200 ${
+                isSelected 
+                  ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 shadow-md ring-2 ring-indigo-400/50 z-10' 
+                  : 'border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-500 shadow-sm'
+              } ${isDragging ? 'cursor-grabbing shadow-lg z-20' : ''} ${isResizing ? 'cursor-ew-resize z-20' : ''}`}
               style={{
                 left: finalLeft,
                 width: finalWidth,
-                transition: (isDragging || isResizing) ? 'none' : undefined
+                transition: (isDragging || isResizing) ? 'none' : 'left 0.15s ease-out, width 0.15s ease-out'
               }}
               onMouseDown={(e) => handleClipMouseDown(e, clip)}
-              onClick={handleClipClick}
+              onClick={(e) => handleClipClick(e, clip)}
             >
-              {/* Enhanced Left resize handle */}
+              {/* Left resize handle */}
               <div 
-                className={`absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize transition-all duration-200 hover:bg-gradient-to-r hover:from-neutral-100/30 hover:to-transparent rounded-l-lg ${
-                  isSelected || isResizing ? 'opacity-100 bg-gradient-to-r from-neutral-100/20 to-transparent' : 'opacity-0 group-hover:opacity-100'
+                className={`absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-indigo-500 transition-opacity duration-200 ${
+                  isSelected || isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                 }`}
                 onMouseDown={(e) => handleResizeMouseDown(e, clip, 'left')}
-                onClick={handleClipClick}
-              >
-                <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-gradient-to-b from-neutral-100/60 to-neutral-100/30 rounded-full"></div>
-              </div>
+                onClick={(e) => handleClipClick(e, clip)}
+                title="Resize from left"
+              />
               
-              {/* Enhanced Clip Content */}
-              <div className="flex items-center justify-between h-full px-3 overflow-hidden">
-                <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  <div className={`w-2 h-2 rounded-full ${colors.accent} flex-shrink-0 shadow-inner ${clip.isUploading ? 'animate-pulse' : ''}`}>
-                    <div className="w-full h-full rounded-full bg-gradient-to-br from-neutral-100/40 to-transparent"></div>
+              {/* Clip Content */}
+              <div className="flex flex-col justify-center px-3 h-full min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                      {clip.name || 'Audio Clip'}
+                    </p>
+                    {/* <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {(clip.duration || 0).toFixed(1)}s
+                    </p> */}
                   </div>
                   
-                  <div className="min-w-0 flex-1">
-                    <span className={`text-xs font-semibold ${colors.text} truncate block leading-tight`}>
-                      {clip.name || 'Audio Clip'}
-                      {clip.isUploading && clip.uploadProgress >= 0 && (
-                        <span className="text-[10px] text-neutral-400 ml-1">
-                          ({Math.round(clip.uploadProgress)}%)
-                        </span>
-                      )}
-                      {clip.uploadProgress === -1 && (
-                        <span className="text-[10px] text-red-400 ml-1">
-                          (Upload Failed)
-                        </span>
-                      )}
-                    </span>
+                  {/* Status indicators */}
+                  <div className="flex-shrink-0">
+                    {clip.isUploading && clip.uploadProgress >= 0 && (
+                      <div className="text-xs text-amber-600 dark:text-amber-400">
+                        {Math.round(clip.uploadProgress)}%
+                      </div>
+                    )}
+                    {clip.uploadProgress === -1 && (
+                      <div className="text-xs text-red-600 dark:text-red-400">
+                        Error
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Upload Progress Bar */}
               {clip.isUploading && clip.uploadProgress >= 0 && (
-                <div className="absolute top-0 left-0 right-0 h-1 bg-neutral-600/50 rounded-t-lg overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-t-lg overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-primary-400 to-primary-500 transition-all duration-300"
+                    className="h-full bg-amber-400 transition-all duration-300"
                     style={{ width: `${clip.uploadProgress}%` }}
                   ></div>
                 </div>
@@ -541,24 +568,23 @@ const Track = ({
               
               {/* Upload Failed Indicator */}
               {clip.uploadProgress === -1 && (
-                <div className="absolute top-0 left-0 right-0 h-1 bg-red-500/60 rounded-t-lg"></div>
+                <div className="absolute top-0 left-0 right-0 h-1 bg-red-500 rounded-t-lg"></div>
               )}
 
-              {/* Elegant waveform visualization */}
-              <div className="absolute bottom-0.5 left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-neutral-100/20 to-transparent rounded-full overflow-hidden">
-                <div className={`h-full ${colors.accent} rounded-full opacity-60`} style={{ width: '75%' }}></div>
-              </div>
+              {/* Waveform placeholder */}
+              {/* <div className="absolute inset-x-3 bottom-1 h-0.5 bg-zinc-200 dark:bg-zinc-600 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-400 w-1/3 rounded-full"></div>
+              </div> */}
               
-              {/* Enhanced Right resize handle */}
+              {/* Right resize handle */}
               <div 
-                className={`absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize transition-all duration-200 hover:bg-gradient-to-l hover:from-neutral-100/30 hover:to-transparent rounded-r-lg ${
-                  isSelected || isResizing ? 'opacity-100 bg-gradient-to-l from-neutral-100/20 to-transparent' : 'opacity-0 group-hover:opacity-100'
+                className={`absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-indigo-500 transition-opacity duration-200 ${
+                  isSelected || isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                 }`}
                 onMouseDown={(e) => handleResizeMouseDown(e, clip, 'right')}
-                onClick={handleClipClick}
-              >
-                <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-gradient-to-b from-neutral-100/60 to-neutral-100/30 rounded-full"></div>
-              </div>
+                onClick={(e) => handleClipClick(e, clip)}
+                title="Resize from right"
+              />
             </div>
           );
         })}

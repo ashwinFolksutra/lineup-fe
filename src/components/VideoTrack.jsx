@@ -126,257 +126,198 @@ const VideoTrack = ({
 
   // Handle mouse events for clip dragging and resizing
   useEffect(() => {
-    // Helper function to check for clip collisions
-    const findNonOverlappingPosition = (targetStart, clipId, clipDuration) => {
-      console.log('Finding non-overlapping position for:', { targetStart, clipId, clipDuration });
-      
-      // Get all other clips (excluding the one being moved)
+    let animationFrameId = null;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    let trackRect = null;
+    
+    const findValidPosition = (requestedStartTime, clipId, clipDuration) => {
       const otherClips = clips.filter(clip => clip.id !== clipId);
       
-      // Helper function to check if two clips would overlap with tolerance
-      const wouldOverlap = (start1, dur1, start2, dur2, tolerance = 0.01) => {
-        const end1 = start1 + dur1;
-        const end2 = start2 + dur2;
-        return !(end1 <= start2 + tolerance || start1 >= end2 - tolerance);
-      };
+      let candidateStart = Math.max(0, requestedStartTime);
+      const candidateEnd = candidateStart + clipDuration;
       
-      // Check if the target position is valid
-      let candidateStart = Math.max(0, targetStart);
-      
-      // Try multiple positioning strategies
-      const strategies = [
-        // Strategy 1: Use exact target position if no overlap
-        candidateStart,
+      // Check for collisions and constrain position to prevent overlap
+      for (const clip of otherClips) {
+        const clipStart = clip.start || clip.startTime || 0;
+        const clipEnd = clipStart + (clip.duration || 5);
         
-        // Strategy 2: Find the nearest gap to the right
-        ...otherClips.map(clip => {
-          const clipEnd = (clip.start || clip.startTime || 0) + (clip.duration || 5);
-          return Math.max(candidateStart, clipEnd);
-        }),
-        
-        // Strategy 3: Find the nearest gap to the left
-        ...otherClips.map(clip => {
-          const clipStart = clip.start || clip.startTime || 0;
-          return Math.max(0, clipStart - clipDuration);
-        }).filter(pos => pos >= 0)
-      ];
-      
-      // Remove duplicates and sort
-      const uniqueStrategies = [...new Set(strategies)].sort((a, b) => {
-        // Prefer positions closer to the target
-        return Math.abs(a - targetStart) - Math.abs(b - targetStart);
-      });
-      
-      console.log('Testing positioning strategies:', uniqueStrategies);
-      
-      // Test each strategy
-      for (const testStart of uniqueStrategies) {
-        let hasOverlap = false;
-        
-        for (const otherClip of otherClips) {
-          const otherStart = otherClip.start || otherClip.startTime || 0;
-          const otherDuration = otherClip.duration || 5;
+        // If candidate would overlap with this clip
+        if (candidateStart < clipEnd && candidateEnd > clipStart) {
+          // Determine which boundary to respect based on drag direction
+          const draggedClipOriginalStart = draggedClip?.start || draggedClip?.startTime || 0;
           
-          if (wouldOverlap(testStart, clipDuration, otherStart, otherDuration)) {
-            console.log(`Overlap detected with ${otherClip.name} at position ${testStart}`);
-            hasOverlap = true;
-            break;
+          if (requestedStartTime > draggedClipOriginalStart) {
+            // Dragging right - stop at left edge of obstacle
+            candidateStart = Math.max(0, clipStart - clipDuration);
+          } else {
+            // Dragging left - stop at right edge of obstacle  
+            candidateStart = clipEnd;
           }
-        }
-        
-        if (!hasOverlap) {
-          console.log(`Found valid position: ${testStart}`);
-          return testStart;
+          break;
         }
       }
       
-      // Fallback: find the rightmost position after all clips
-      const maxEnd = Math.max(0, ...otherClips.map(clip => 
-        (clip.start || clip.startTime || 0) + (clip.duration || 5)
-      ));
+      return Math.max(0, candidateStart);
+    };
+
+    const updateDragPosition = () => {
+      if (!draggedClip || !trackContentRef.current) return;
       
-      console.log(`Using fallback position: ${maxEnd}`);
-      return maxEnd;
+      const rect = trackRect || trackContentRef.current.getBoundingClientRect();
+      const x = lastMouseX - rect.left - dragOffset;
+      const rawStartTime = Math.max(0, x / pixelsPerSecond);
+      
+      // Use collision detection to find a valid position
+      const clipDuration = draggedClip.duration || 5;
+      const newStartTime = findValidPosition(rawStartTime, draggedClip.id, clipDuration);
+      const newLeft = newStartTime * pixelsPerSecond;
+      
+      const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
+      if (clipElement) {
+        // Use direct left positioning for accuracy - transforms can cause precision issues
+        clipElement.style.left = `${newLeft}px`;
+        clipElement.style.transition = 'none';
+        clipElement.style.willChange = 'transform';
+        
+        setTempClipStyles(prev => new Map(prev.set(draggedClip.id, {
+          start: newStartTime,
+          startTime: newStartTime,
+          left: newLeft
+        })));
+      }
+    };
+
+    const updateResizePosition = () => {
+      if (!resizeState || !trackContentRef.current) return;
+      
+      const rect = trackRect || trackContentRef.current.getBoundingClientRect();
+      const x = lastMouseX - rect.left;
+      const timePosition = x / pixelsPerSecond;
+      
+      const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${resizeState.clipId}"]`);
+      if (!clipElement) return;
+      
+      if (resizeState.edge === 'right') {
+        const newDuration = Math.max(0.1, timePosition - resizeState.originalStart);
+        
+        // Check for collision with clips to the right - but only if we're expanding
+        let finalDuration = newDuration;
+        
+        // Only do collision detection if we're expanding (new duration > original)
+        if (newDuration > resizeState.originalDuration) {
+          const otherClips = clips.filter(clip => clip.id !== resizeState.clipId);
+          
+          // Find the nearest clip to the right
+          let maxAllowedDuration = newDuration;
+          
+          for (const clip of otherClips) {
+            const clipStart = clip.start || clip.startTime || 0;
+            if (clipStart > resizeState.originalStart) {
+              const allowedDuration = clipStart - resizeState.originalStart;
+              if (allowedDuration < maxAllowedDuration) {
+                maxAllowedDuration = allowedDuration;
+              }
+            }
+          }
+          
+          finalDuration = Math.max(0.1, Math.min(newDuration, maxAllowedDuration));
+        } else {
+          // When shrinking, allow it without collision check
+          finalDuration = newDuration;
+        }
+        
+        // Use direct width for accuracy
+        const newWidth = Math.max(10, finalDuration * pixelsPerSecond);
+        clipElement.style.width = `${newWidth}px`;
+        clipElement.style.transition = 'none';
+        clipElement.style.willChange = 'transform';
+        
+        setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
+          duration: finalDuration,
+          width: newWidth
+        })));
+      } else if (resizeState.edge === 'left') {
+        const maxStart = resizeState.originalStart + resizeState.originalDuration - 0.1;
+        let newStart = Math.max(0, Math.min(timePosition, maxStart));
+        
+        // Check for collision with clips to the left - but only if we're expanding left
+        let finalStart = newStart;
+        
+        // Only do collision detection if we're expanding left (new start < original start)
+        if (newStart < resizeState.originalStart) {
+          const otherClips = clips.filter(clip => clip.id !== resizeState.clipId);
+          
+          // Find the nearest clip to the left
+          let minAllowedStart = 0;
+          
+          for (const clip of otherClips) {
+            const clipStart = clip.start || clip.startTime || 0;
+            const clipEnd = clipStart + (clip.duration || 5);
+            if (clipEnd <= resizeState.originalStart) {
+              if (clipEnd > minAllowedStart) {
+                minAllowedStart = clipEnd;
+              }
+            }
+          }
+          
+          finalStart = Math.max(minAllowedStart, Math.min(newStart, maxStart));
+        } else {
+          // When shrinking from left (moving start to the right), allow it without collision check
+          finalStart = newStart;
+        }
+        
+        const newDuration = resizeState.originalStart + resizeState.originalDuration - finalStart;
+        const newLeft = finalStart * pixelsPerSecond;
+        const newWidth = Math.max(10, newDuration * pixelsPerSecond);
+        
+        // Use direct positioning and width for accuracy
+        clipElement.style.left = `${newLeft}px`;
+        clipElement.style.width = `${newWidth}px`;
+        clipElement.style.transition = 'none';
+        clipElement.style.willChange = 'transform';
+        
+        setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
+          start: finalStart,
+          startTime: finalStart,
+          duration: newDuration,
+          left: newLeft,
+          width: newWidth
+        })));
+      }
     };
 
     const handleMouseMove = (e) => {
-      if (draggedClip) {
+      // Cache mouse position to avoid repeated access
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      
+      if (draggedClip || resizeState) {
         e.preventDefault();
         e.stopPropagation();
         
-        const rect = trackContentRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left - dragOffset;
-        const rawStartTime = x / pixelsPerSecond;
-        
-        // Use collision detection to find a valid position
-        const clipDuration = draggedClip.duration || 5;
-        const newStartTime = findNonOverlappingPosition(rawStartTime, draggedClip.id, clipDuration);
-        const newLeft = newStartTime * pixelsPerSecond;
-        
-        // Validate the new position doesn't create overlaps
-        const newEnd = newStartTime + clipDuration;
-        const wouldOverlap = clips.some(clip => {
-          if (clip.id === draggedClip.id) return false;
-          const clipStart = clip.start || clip.startTime || 0;
-          const clipEnd = clipStart + (clip.duration || 5);
-          return (newStartTime < clipEnd && newEnd > clipStart);
-        });
-        
-        if (wouldOverlap) {
-          console.log('Drag position would create overlap, using safe position');
-          return; // Don't update position if it would create overlap
+        // Cancel previous animation frame and schedule new one
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
         }
         
-        const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
-        if (clipElement) {
-          clipElement.style.left = `${newLeft}px`;
-          
-          setTempClipStyles(prev => new Map(prev.set(draggedClip.id, {
-            start: newStartTime,
-            startTime: newStartTime,
-            left: newLeft
-          })));
-        }
-      } else if (resizeState) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const rect = trackContentRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const timePosition = x / pixelsPerSecond;
-        
-        const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${resizeState.clipId}"]`);
-        if (!clipElement) return;
-        
-        if (resizeState.edge === 'right') {
-          const newDuration = Math.max(0.1, timePosition - resizeState.originalStart);
-          
-          // console.log('Right resize debug:', {
-          //   mouseX: x,
-          //   timePosition,
-          //   originalStart: resizeState.originalStart,
-          //   calculatedDuration: newDuration,
-          //   pixelsPerSecond
-          // });
-          
-          // Check for collision with clips to the right - but only if we're expanding
-          let finalDuration = newDuration;
-          let nearestRightClip = null;
-          
-          // Only do collision detection if we're expanding (new duration > original)
-          if (newDuration > resizeState.originalDuration) {
-            const otherClips = clips.filter(clip => clip.id !== resizeState.clipId);
-            
-            // Find the nearest clip to the right
-            let maxAllowedDuration = newDuration;
-            
-            for (const clip of otherClips) {
-              const clipStart = clip.start || clip.startTime || 0;
-              if (clipStart > resizeState.originalStart) {
-                const allowedDuration = clipStart - resizeState.originalStart;
-                if (allowedDuration < maxAllowedDuration) {
-                  maxAllowedDuration = allowedDuration;
-                  nearestRightClip = clip;
-                }
-              }
-            }
-            
-            finalDuration = Math.max(0.1, Math.min(newDuration, maxAllowedDuration));
-            
-            // console.log('Right resize collision check (expanding):', {
-            //   requestedDuration: newDuration,
-            //   maxAllowed: maxAllowedDuration,
-            //   finalDuration,
-            //   nearestRightClip: nearestRightClip?.name
-            // });
-          } else {
-            // When shrinking, allow it without collision check
-            finalDuration = newDuration;
-            // console.log('Right resize (shrinking):', {
-            //   requestedDuration: newDuration,
-            //   finalDuration
-            // });
+        animationFrameId = requestAnimationFrame(() => {
+          if (draggedClip) {
+            updateDragPosition();
+          } else if (resizeState) {
+            updateResizePosition();
           }
-          
-          // Calculate and apply the new width
-          const newWidth = Math.max(10, finalDuration * pixelsPerSecond);
-          clipElement.style.width = `${newWidth}px`;
-          
-          setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
-            duration: finalDuration,
-            width: newWidth
-          })));
-        } else if (resizeState.edge === 'left') {
-          const maxStart = resizeState.originalStart + resizeState.originalDuration - 0.1;
-          let newStart = Math.max(0, Math.min(timePosition, maxStart));
-          
-          console.log('Left resize debug:', {
-            mouseX: x,
-            timePosition,
-            originalStart: resizeState.originalStart,
-            calculatedStart: newStart,
-            maxStart,
-            pixelsPerSecond
-          });
-          
-          // Check for collision with clips to the left - but only if we're expanding left
-          let finalStart = newStart;
-          let nearestLeftClip = null;
-          
-          // Only do collision detection if we're expanding left (new start < original start)
-          if (newStart < resizeState.originalStart) {
-            const otherClips = clips.filter(clip => clip.id !== resizeState.clipId);
-            
-            // Find the nearest clip to the left
-            let minAllowedStart = 0;
-            
-            for (const clip of otherClips) {
-              const clipStart = clip.start || clip.startTime || 0;
-              const clipEnd = clipStart + (clip.duration || 5);
-              if (clipEnd <= resizeState.originalStart) {
-                if (clipEnd > minAllowedStart) {
-                  minAllowedStart = clipEnd;
-                  nearestLeftClip = clip;
-                }
-              }
-            }
-            
-            finalStart = Math.max(minAllowedStart, Math.min(newStart, maxStart));
-            
-            // console.log('Left resize collision check (expanding):', {
-            //   requestedStart: timePosition,
-            //   minAllowed: minAllowedStart,
-            //   finalStart,
-            //   nearestLeftClip: nearestLeftClip?.name
-            // });
-          } else {
-            // When shrinking from left (moving start to the right), allow it without collision check
-            finalStart = newStart;
-            // console.log('Left resize (shrinking):', {
-            //   requestedStart: timePosition,
-            //   finalStart
-            // });
-          }
-          
-          const newDuration = resizeState.originalStart + resizeState.originalDuration - finalStart;
-          const newLeft = finalStart * pixelsPerSecond;
-          const newWidth = Math.max(10, newDuration * pixelsPerSecond);
-          
-          clipElement.style.left = `${newLeft}px`;
-          clipElement.style.width = `${newWidth}px`;
-          
-          setTempClipStyles(prev => new Map(prev.set(resizeState.clipId, {
-            start: finalStart,
-            startTime: finalStart,
-            duration: newDuration,
-            left: newLeft,
-            width: newWidth
-          })));
-        }
-      }
-    };
+         });
+       }
+     };
 
     const handleMouseUp = (e) => {
+      // Cancel any pending animation frame
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      
       if (draggedClip || resizeState) {
         e.preventDefault();
         e.stopPropagation();
@@ -388,6 +329,14 @@ const VideoTrack = ({
           const updates = {};
           if (tempStyle.start !== undefined) updates.start = tempStyle.start;
           if (tempStyle.startTime !== undefined) updates.startTime = tempStyle.startTime;
+          
+          // Re-enable transitions and ensure final position
+          const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${draggedClip.id}"]`);
+          if (clipElement) {
+            clipElement.style.transition = '';
+            clipElement.style.willChange = '';
+            // Position is already set correctly during drag
+          }
           
           dispatch(updateClip({ trackId, clipId: draggedClip.id, updates }));
           
@@ -407,6 +356,14 @@ const VideoTrack = ({
           if (tempStyle.startTime !== undefined) updates.startTime = tempStyle.startTime;
           if (tempStyle.duration !== undefined) updates.duration = tempStyle.duration;
           
+          // Re-enable transitions
+          const clipElement = trackContentRef.current.querySelector(`[data-clip-id="${resizeState.clipId}"]`);
+          if (clipElement) {
+            clipElement.style.transition = '';
+            clipElement.style.willChange = '';
+            // Position and dimensions are already set correctly during resize
+          }
+          
           dispatch(updateClip({ trackId, clipId: resizeState.clipId, updates }));
           
           setTempClipStyles(prev => {
@@ -417,10 +374,18 @@ const VideoTrack = ({
         }
       }
       
+      // Reset cached rect
+      trackRect = null;
+      
       setDraggedClip(null);
       setDragOffset(0);
       setResizeState(null);
     };
+
+    // Cache track rect when drag/resize starts for better performance
+    if ((draggedClip || resizeState) && !trackRect) {
+      trackRect = trackContentRef.current?.getBoundingClientRect();
+    }
 
     if (draggedClip || resizeState) {
       document.addEventListener('mousemove', handleMouseMove, { passive: false });
@@ -433,12 +398,15 @@ const VideoTrack = ({
     }
 
     return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
-  }, [draggedClip, dragOffset, resizeState, pixelsPerSecond, tempClipStyles, dispatch, trackId]);
+  }, [draggedClip, dragOffset, resizeState, pixelsPerSecond, tempClipStyles, dispatch, trackId, clips]);
 
   const handleFileDrop = async (e) => {
     e.preventDefault();
@@ -650,13 +618,6 @@ const VideoTrack = ({
     e.preventDefault();
     e.stopPropagation();
     
-    // console.log('Right-click detected', { 
-    //   target: e.target, 
-    //   draggedClip, 
-    //   resizeState,
-    //   hasDataClipId: e.target.closest('[data-clip-id]') 
-    // });
-    
     // Don't fill gaps if we're dragging or resizing
     if (draggedClip || resizeState) {
       console.log('Gap filling blocked - dragging or resizing');
@@ -666,6 +627,12 @@ const VideoTrack = ({
     // Don't fill gaps if right-clicking on a clip
     if (e.target.closest('[data-clip-id]')) {
       console.log('Gap filling blocked - clicked on existing clip');
+      return;
+    }
+    
+    // Only allow gap filling if there are already clips/placeholders on the track
+    if (clips.length === 0) {
+      console.log('Gap filling blocked - no existing clips. Use "Add Placeholders" button first.');
       return;
     }
     
@@ -807,7 +774,7 @@ const VideoTrack = ({
   };
 
   return (
-    <div className="relative h-16 backdrop-blur-md bg-gradient-to-r from-surface-800/30 via-surface-700/20 to-surface-800/30 border-b border-neutral-200/10 hover:bg-gradient-to-r hover:from-surface-700/40 hover:via-surface-600/30 hover:to-surface-700/40 transition-all duration-300">
+    <div className="relative h-12 backdrop-blur-md bg-gradient-to-r from-surface-800/30 via-surface-700/20 to-surface-800/30 border-b border-neutral-200/10 hover:bg-gradient-to-r hover:from-surface-700/40 hover:via-surface-600/30 hover:to-surface-700/40 transition-all duration-300">
       <div 
         className="h-full relative group"
         ref={trackContentRef}
@@ -816,31 +783,45 @@ const VideoTrack = ({
         onClick={handleTrackClick}
         onContextMenu={handleRightClick}
       >
-        {/* Track Label */}
-        {clips.length === 0 && (
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
-            <div className="backdrop-blur-md bg-gradient-to-r from-primary-600/80 to-primary-700/90 border-primary-400/40 border rounded-lg px-2.5 py-1 shadow-inner-glass">
-              <span className="text-xs font-semibold text-neutral-100 tracking-wide">{label}</span>
-            </div>
-          </div>
-        )}
 
-        {/* Track Label with Create Placeholders Button when clips exist */}
+        {/* Enhanced Track Label with Create Placeholders Button */}
         {clips.length == 0 && (
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 flex items-center gap-2">
-            <div className="backdrop-blur-md bg-gradient-to-r from-primary-600/80 to-primary-700/90 border-primary-400/40 border rounded-lg px-2.5 py-1 shadow-inner-glass">
-              <span className="text-xs font-semibold text-neutral-100 tracking-wide">{label}</span>
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
+            {/* Enhanced Create Placeholders Button */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCreatePlaceholders}
+                className="group relative overflow-hidden backdrop-blur-md bg-gradient-to-r from-emerald-500/20 to-emerald-600/30 hover:from-emerald-400/30 hover:to-emerald-500/40 border border-emerald-400/30 hover:border-emerald-300/50 rounded-lg px-3 py-1.5 transition-all duration-300 shadow-glass hover:shadow-glass-lg hover:scale-105 active:scale-95"
+                title="Generate placeholder clips based on audio duration"
+              >
+                {/* Background glow effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/0 via-emerald-400/10 to-emerald-400/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                
+                <div className="relative flex items-center gap-2">
+                  {/* Icon */}
+                  <div className="w-4 h-4 flex items-center justify-center">
+                    <svg className="w-3.5 h-3.5 text-emerald-200 group-hover:text-emerald-100 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  
+                  {/* Text */}
+                  <span className="text-xs font-medium text-emerald-100 group-hover:text-white transition-colors duration-200">
+                    Add Placeholders
+                  </span>
+                </div>
+                
+                {/* Shimmer effect on hover */}
+                <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+              </button>
+              
+              {/* Help Text */}
+              {/* <div className="hidden sm:block">
+                <span className="text-xs text-neutral-400/70">
+                  Right-click track to add individual clips
+                </span>
+              </div> */}
             </div>
-            <button
-              onClick={handleCreatePlaceholders}
-              className="group backdrop-blur-md bg-gradient-to-r from-accent-600/60 to-accent-700/80 hover:from-accent-500/70 hover:to-accent-600/90 border border-accent-400/40 hover:border-accent-300/60 rounded-lg px-2 py-1 transition-all duration-300 shadow-inner-glass hover:shadow-glass"
-              title="Add more placeholder clips"
-            >
-              <div className="flex items-center gap-1">
-                <span className="text-accent-100 text-xs">📋</span>
-                <span className="text-accent-100 text-xs font-medium group-hover:text-white">+</span>
-              </div>
-            </button>
           </div>
         )}
         
@@ -868,7 +849,7 @@ const VideoTrack = ({
               style={{
                 left: finalLeft,
                 width: finalWidth,
-                transition: (isDragging || isResizing) ? 'none' : undefined
+                transition: (isDragging || isResizing) ? 'none' : 'left 0.15s ease-out, width 0.15s ease-out'
               }}
               onMouseDown={(e) => handleClipMouseDown(e, clip)}
               onClick={(e) => handleClipClick(e, clip)}

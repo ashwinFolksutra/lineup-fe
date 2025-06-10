@@ -1,5 +1,16 @@
 import React, { forwardRef } from "react";
-import { PlayIcon, PauseIcon } from '@heroicons/react/24/solid';
+import { Button } from './button';
+import { 
+  PlayIcon, 
+  PauseIcon,
+  BackwardIcon,
+  ForwardIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
+} from '@heroicons/react/24/solid';
+import {
+  ArrowUturnLeftIcon,
+} from '@heroicons/react/24/outline';
 
 const VideoPreview = forwardRef(({ 
   videoFile, 
@@ -28,76 +39,68 @@ const VideoPreview = forwardRef(({
     };
 
     return (
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-            <div className="relative group">
-                {/* Enhanced glass morphism container */}
-                <div className="backdrop-blur-2xl bg-gradient-to-br from-neutral-100/10 via-neutral-100/5 to-neutral-100/10 rounded-3xl shadow-glass-xl border border-white/10 p-6 transition-all duration-500 group-hover:shadow-glass-xl group-hover:border-white/20">
-                    {/* Inner video container with elegant styling */}
-                    <div className="relative bg-gradient-to-br from-surface-800 to-surface-900 rounded-2xl overflow-hidden shadow-inner-glass border border-surface-600/30">
+        <div className="h-full flex flex-col bg-white dark:bg-zinc-900">
+            {/* Video Container */}
+            <div className="flex-1 flex items-center justify-center p-4">
+                <div className="relative max-w-4xl w-full">
+                    {/* Video Element */}
+                    <div className="relative bg-zinc-900 rounded-lg overflow-hidden shadow-xl border border-zinc-200 dark:border-zinc-700">
                         <video
                             ref={ref}
                             src={videoFile}
-                            className="w-160 h-80 object-cover"
+                            className="w-full h-auto max-h-[40vh] object-contain"
                         />
-                        {/* Sophisticated overlay gradients */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-surface-900/30 via-transparent to-transparent pointer-events-none"></div>
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary-900/10 via-transparent to-violet-900/10 pointer-events-none"></div>
-
-                        {/* Elegant corner accents */}
-                        <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-primary-400/40 rounded-tl-lg"></div>
-                        <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-primary-400/40 rounded-tr-lg"></div>
-                        <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-primary-400/40 rounded-bl-lg"></div>
-                        <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-primary-400/40 rounded-br-lg"></div>
+                        
+                        {/* Video overlay for play button when paused */}
+                        {!isPlaying && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+                                <Button 
+                                    size="lg"
+                                    color="white"
+                                    onClick={togglePlay}
+                                    className="shadow-xl"
+                                >
+                                    <PlayIcon className="w-8 h-8" />
+                                </Button>
+                            </div>
+                        )}
                     </div>
-
-                    {/* Subtle glow effect */}
-                    <div className="absolute -inset-1 bg-gradient-to-br from-primary-500/20 via-transparent to-violet-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 </div>
             </div>
 
-            {/* Video Controls */}
-            <div className="mt-6 flex items-center gap-3 bg-surface-800/60 rounded-lg px-4 py-2">
-                {/* Jump to Start */}
-                <button 
-                    onClick={handleJumpToStart}
-                    className="text-neutral-300 hover:text-white transition-colors p-1"
-                    title="Jump to Start"
-                >
-                    <span className="text-sm">|&lt;&lt;</span>
-                </button>
+            {/* Controls Bar */}
+            <div className="border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2">
+                <div className="flex items-center justify-center max-w-4xl mx-auto">
+                    {/* All Controls Centered */}
+                    <div className="flex items-center gap-2">
+                        <Button size="sm" plain onClick={handleJumpToStart} title="Jump to Start">
+                            <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </Button>
 
-                {/* 5 Seconds Back */}
-                <button 
-                    onClick={handleSeekBackward}
-                    className="text-neutral-300 hover:text-white transition-colors p-1"
-                    title="5 seconds back"
-                >
-                    <span className="text-sm">&lt;&lt;</span>
-                </button>
+                        <Button size="sm" plain onClick={handleSeekBackward} title="5 seconds back">
+                            <BackwardIcon className="w-4 h-4" />
+                        </Button>
 
-                {/* Play/Pause */}
-                <button 
-                    onClick={togglePlay}
-                    className="text-neutral-300 hover:text-white transition-colors p-1"
-                >
-                    {isPlaying ? 
-                        <PauseIcon className="w-5 h-5" /> : 
-                        <PlayIcon className="w-5 h-5" />
-                    }
-                </button>
+                        <Button 
+                            size="sm"
+                            color={isPlaying ? "red" : "indigo"}
+                            onClick={togglePlay}
+                        >
+                            {isPlaying ? (
+                                <PauseIcon className="w-4 h-4" />
+                            ) : (
+                                <PlayIcon className="w-4 h-4" />
+                            )}
+                        </Button>
 
-                {/* 5 Seconds Forward */}
-                <button 
-                    onClick={handleSeekForward}
-                    className="text-neutral-300 hover:text-white transition-colors p-1"
-                    title="5 seconds forward"
-                >
-                    <span className="text-sm">&gt;&gt;</span>
-                </button>
+                        <Button size="sm" plain onClick={handleSeekForward} title="5 seconds forward">
+                            <ForwardIcon className="w-4 h-4" />
+                        </Button>
 
-                {/* Duration Display */}
-                <div className="ml-4 font-mono text-sm text-neutral-300">
-                    {formatTime(currentTime)} / {formatTime(duration)}
+                        <div className="text-sm font-mono text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-md">
+                            {formatTime(currentTime)} / {formatTime(duration)}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
