@@ -507,17 +507,42 @@ const Track = ({
               {/* Enhanced Clip Content */}
               <div className="flex items-center justify-between h-full px-3 overflow-hidden">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  <div className={`w-2 h-2 rounded-full ${colors.accent} flex-shrink-0 shadow-inner animate-pulse`}>
+                  <div className={`w-2 h-2 rounded-full ${colors.accent} flex-shrink-0 shadow-inner ${clip.isUploading ? 'animate-pulse' : ''}`}>
                     <div className="w-full h-full rounded-full bg-gradient-to-br from-neutral-100/40 to-transparent"></div>
                   </div>
                   
                   <div className="min-w-0 flex-1">
                     <span className={`text-xs font-semibold ${colors.text} truncate block leading-tight`}>
                       {clip.name || 'Audio Clip'}
+                      {clip.isUploading && clip.uploadProgress >= 0 && (
+                        <span className="text-[10px] text-neutral-400 ml-1">
+                          ({Math.round(clip.uploadProgress)}%)
+                        </span>
+                      )}
+                      {clip.uploadProgress === -1 && (
+                        <span className="text-[10px] text-red-400 ml-1">
+                          (Upload Failed)
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
               </div>
+
+              {/* Upload Progress Bar */}
+              {clip.isUploading && clip.uploadProgress >= 0 && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-neutral-600/50 rounded-t-lg overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-primary-400 to-primary-500 transition-all duration-300"
+                    style={{ width: `${clip.uploadProgress}%` }}
+                  ></div>
+                </div>
+              )}
+              
+              {/* Upload Failed Indicator */}
+              {clip.uploadProgress === -1 && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-red-500/60 rounded-t-lg"></div>
+              )}
 
               {/* Elegant waveform visualization */}
               <div className="absolute bottom-0.5 left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-neutral-100/20 to-transparent rounded-full overflow-hidden">

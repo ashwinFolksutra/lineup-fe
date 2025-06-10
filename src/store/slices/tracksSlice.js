@@ -189,6 +189,46 @@ const tracksSlice = createSlice({
       }
     },
     
+    // Asset management actions
+    updateClipAssetId: (state, action) => {
+      const { clipId, assetId, serverAssetData } = action.payload;
+      state.tracks.forEach(track => {
+        const clip = track.clips.find(c => c.id === clipId);
+        if (clip) {
+          clip.assetId = assetId;
+          // Remove temporary file reference once asset is uploaded
+          if (serverAssetData) {
+            clip.file = null;
+            clip.uploadProgress = null;
+            clip.isUploading = false;
+            clip.serverAssetData = serverAssetData;
+          }
+        }
+      });
+    },
+    
+    updateClipUploadProgress: (state, action) => {
+      const { clipId, progress } = action.payload;
+      state.tracks.forEach(track => {
+        const clip = track.clips.find(c => c.id === clipId);
+        if (clip) {
+          clip.uploadProgress = progress;
+          clip.isUploading = progress < 100;
+        }
+      });
+    },
+    
+    markClipAsUploading: (state, action) => {
+      const { clipId } = action.payload;
+      state.tracks.forEach(track => {
+        const clip = track.clips.find(c => c.id === clipId);
+        if (clip) {
+          clip.isUploading = true;
+          clip.uploadProgress = 0;
+        }
+      });
+    },
+    
     // Timeline settings
     setPixelsPerSecond: (state, action) => {
       state.pixelsPerSecond = action.payload;
@@ -278,6 +318,9 @@ export const {
   removeSelectedClips,
   splitClip,
   updateClipFile,
+  updateClipAssetId,
+  updateClipUploadProgress,
+  markClipAsUploading,
   setPixelsPerSecond,
   setZoomLevel,
   setDuration,

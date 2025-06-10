@@ -6,12 +6,16 @@ import {
   setCurrentTime, 
   clearSelection, 
   addMultipleClipsToTrack, 
-  setZoomLevel 
+  setZoomLevel,
+  updateClipAssetId,
+  updateClipUploadProgress,
+  markClipAsUploading
 } from '../store/slices/tracksSlice';
+import { assetService } from '../services/assetService';
 
 const BASE_PIXELS_PER_SECOND = 80;
 
-const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef }) => {
+const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef, projectId }) => {
   const dispatch = useDispatch();
   const {
     tracks,
@@ -182,7 +186,7 @@ const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef }) => {
   };
 
   // Handle file drop for audio files only
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback(async (e) => {
     e.preventDefault();
     setIsDragOver(false);
     
@@ -204,22 +208,30 @@ const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef }) => {
     // Process the single audio file
     const file = audioFiles[0];
     
-    // Create audio element to get actual duration
-    const audio = new Audio();
-    const objectURL = URL.createObjectURL(file);
-    audio.src = objectURL;
-    
-    audio.addEventListener('loadedmetadata', () => {
-      const actualDuration = audio.duration;
+    try {
+      // Generate temporary asset ID
+      const tempAssetId = assetService.generateTempAssetId();
       
+      // Process audio file to get metadata
+      const audioMetadata = await assetService.processAudioFile(file);
+      
+      // Create temporary asset reference
+      const tempAsset = assetService.createTempAssetReference(file, tempAssetId);
+      
+      // Create clip with asset reference
+      const clipId = Date.now().toString();
       const newClip = {
-        id: Date.now().toString(),
+        id: clipId,
         name: file.name,
-        file: file,
+        assetId: tempAssetId, // Reference to asset instead of direct file
         start: 0,
         startTime: 0,
-        duration: actualDuration,
-        audioOffset: 0
+        duration: audioMetadata.duration,
+        audioOffset: 0,
+        // Keep file reference temporarily for playback until upload completes
+        file: file,
+        isUploading: true,
+        uploadProgress: 0
       };
 
       // Add to first audio track
@@ -234,17 +246,42 @@ const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef }) => {
       // Reset playhead to 0
       onSeek(0);
       
-      // Clean up object URL
-      URL.revokeObjectURL(objectURL);
-    });
-    
-    audio.addEventListener('error', () => {
-      alert('Error loading audio file. Please try a different file.');
-      URL.revokeObjectURL(objectURL);
-    });
-    
-    // Load the audio to trigger metadata loading
-    audio.load();
+      // Start uploading asset in the background
+      try {
+        dispatch(markClipAsUploading({ clipId }));
+        
+        const uploadResponse = await assetService.uploadAudioAsset(
+          projectId,
+          file, 
+          tempAssetId,
+          (progress) => {
+            console.log(`Upload progress: ${progress}%`);
+            dispatch(updateClipUploadProgress({ clipId, progress }));
+          }
+        );
+        
+        // console.log('Asset uploaded successfully:', uploadResponse);
+        
+        // Update clip with actual asset ID from server response
+        if (uploadResponse && uploadResponse.asset) {
+          dispatch(updateClipAssetId({ 
+            clipId, 
+            assetId: uploadResponse.asset.id,
+            serverAssetData: uploadResponse.asset
+          }));
+        }
+        
+      } catch (uploadError) {
+        console.error('Failed to upload asset:', uploadError);
+        alert('Failed to upload audio file. The clip may not play properly.');
+        // Mark upload as failed but keep the clip with file reference
+        dispatch(updateClipUploadProgress({ clipId, progress: -1 })); // -1 indicates error
+      }
+      
+    } catch (error) {
+      console.error('Error processing audio file:', error);
+      alert('Error processing audio file. Please try a different file.');
+    }
   }, [tracks, dispatch, onSeek]);
 
   const handleDragOver = useCallback((e) => {
