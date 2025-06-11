@@ -1,6 +1,14 @@
 /* index.css */
 @import "tailwindcss";
 
+/* Hide scrollbar utility class */
+.scrollbar-hide {
+    -webkit-overflow-scrolling: touch;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
 
 html, body, #root {
     height: 100%;

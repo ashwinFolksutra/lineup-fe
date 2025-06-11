@@ -431,8 +431,12 @@ const Timeline = ({ onSeek, scrollContainerRef: parentScrollRef, projectId, isPl
 
             {/* Scrollable Timeline Content */}
             <div 
-              className="flex-1 overflow-x-auto overflow-y-hidden"
+              className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-hide"
               ref={activeScrollRef}
+              style={{
+                scrollbarWidth: 'none', /* Firefox */
+                msOverflowStyle: 'none', /* Internet Explorer 10+ */
+              }}
             >
               <div 
                 className="relative h-full"

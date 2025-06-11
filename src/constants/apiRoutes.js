@@ -41,16 +41,14 @@ export const API_ROUTES = {
     UPDATE: (id) => `${API_BASE_URL}/projects/${id}`,
     DELETE: (id) => `${API_BASE_URL}/projects/${id}`,
     SAVE: (id) => `${API_BASE_URL}/projects/${id}/save`,
+    QUICK_SAVE: (id) => `${API_BASE_URL}/projects/${id}/quick-save`,
     EXPORT: (id) => `${API_BASE_URL}/projects/${id}/export`,
   },
   
   // Timeline related endpoints
   TIMELINE: {
-    GET_TRACKS: (projectId) => `${API_BASE_URL}/projects/${projectId}/tracks`,
-    UPDATE_TRACKS: (projectId) => `${API_BASE_URL}/projects/${projectId}/tracks`,
-    ADD_CLIP: (projectId) => `${API_BASE_URL}/projects/${projectId}/clips`,
-    UPDATE_CLIP: (projectId, clipId) => `${API_BASE_URL}/projects/${projectId}/clips/${clipId}`,
-    DELETE_CLIP: (projectId, clipId) => `${API_BASE_URL}/projects/${projectId}/clips/${clipId}`,
+    GET_TRACKS: (projectId) => `${API_BASE_URL}/tracks/${projectId}`,
+    UPDATE_TRACKS: (projectId) => `${API_BASE_URL}/tracks/${projectId}`,
   },
   
   // User related endpoints (if you have user authentication)

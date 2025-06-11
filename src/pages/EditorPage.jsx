@@ -1,12 +1,12 @@
 import { useRef, useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams, useNavigate } from 'react-router-dom';
-import { setZoomLevel } from '../store/slices/tracksSlice';
+import { setZoomLevel, loadProjectData } from '../store/slices/tracksSlice';
 
 // Catalyst Components
 import { Button } from '../components/button';
 import { Badge } from '../components/badge';
-import { Heading } from '../components/heading';
+import { Heading, Subheading } from '../components/heading';
 import { 
   Dropdown,
   DropdownButton,
@@ -17,11 +17,13 @@ import {
 // Components
 import Timeline from '../components/Timeline';
 import VideoPreview from '../components/VideoPreview';
+import SaveStatusIndicator from '../components/SaveStatusIndicator';
 
 // Custom hooks
 import { useVideoPlayer } from '../hooks/useVideoPlayer';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useAutoSave } from '../hooks/useAutoSave';
 
 // Services
 import { projectService } from '../services/projectService';
@@ -60,6 +62,7 @@ const EditorPage = () => {
   const { videoRef, currentTime, isPlaying, togglePlay, seekTo } = useVideoPlayer(videoFile);
   const { audioClips, stopAllAudios } = useAudioPlayer();
   const { handleSplitClip } = useKeyboardShortcuts(togglePlay, currentTime);
+  const { saveProject, isDirty, isSaving, lastSaved } = useAutoSave(projectId);
 
   // Load project data if projectId is provided
   useEffect(() => {
@@ -68,17 +71,53 @@ const EditorPage = () => {
     }
   }, [projectId]);
 
+  const loadTracks = async (id) => {
+    try {
+      const response = await projectService.getProjectTracks(id);
+
+      // Try multiple possible response structures
+      let tracks;
+      if (Array.isArray(response)) {
+        tracks = response;
+      } else if (response && Array.isArray(response.data)) {
+        tracks = response.data;
+      } else if (response && Array.isArray(response.tracks)) {
+        tracks = response.tracks;
+      } else if (response && response.data && Array.isArray(response.data.tracks)) {
+        tracks = response.data.tracks;
+      } else {
+        tracks = [];
+      }
+
+      console.log('tracks', tracks);
+      const assetIds = [...new Set(tracks.flatMap(track => 
+        track.clips.map(clip => clip.assetId)
+      ).filter(Boolean))]; // Get unique asset IDs, filtering out falsy values
+      console.log('assetIds', assetIds);
+      
+      // Always dispatch to replace tracks
+      dispatch(loadProjectData({ tracks }));
+      console.log('Dispatched loadProjectData with tracks');
+    } catch (error) {
+      console.error('Failed to load project tracks:', error);
+      // Dispatch empty tracks on error to clear any existing tracks
+      dispatch(loadProjectData({ tracks: [] }));
+    }
+  }
+
+  const loadAsset = async (projectId, assetId) => {
+    const asset = await projectService.getAssetById(projectId, assetId);
+    console.log('asset', asset);
+  }
+
   const loadProject = async (id) => {
     try {
       setLoading(true);
       const projectData = await projectService.getProjectById(id);
-      setProject(projectData);
-      
+      setProject(projectData?.data);
+
       // Load project tracks if they exist
-      if (projectData.tracks) {
-        // You would dispatch actions to load tracks into Redux store here
-        // dispatch(setTracks(projectData.tracks));
-      }
+      loadTracks(id);
     } catch (error) {
       const message = handleApiError(error);
       console.error('Failed to load project:', message);
@@ -92,28 +131,7 @@ const EditorPage = () => {
     }
   };
 
-  // Save project periodically (auto-save)
-  useEffect(() => {
-    if (!projectId || !project) return;
 
-    const autoSaveInterval = setInterval(async () => {
-      try {
-        // Get current tracks from Redux store
-        const currentTracks = useSelector(state => state.tracks.tracks);
-        
-        await projectService.saveProject(projectId, {
-          tracks: currentTracks,
-          lastModified: new Date().toISOString()
-        });
-        
-        console.log('Project auto-saved');
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-      }
-    }, 30000); // Auto-save every 30 seconds
-
-    return () => clearInterval(autoSaveInterval);
-  }, [projectId, project]);
 
   if (loading) {
     return (
@@ -131,39 +149,55 @@ const EditorPage = () => {
       {/* Top Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
         <div className="flex items-center gap-4">
-          <Button plain onClick={() => navigate('/projects')}>
+          <Button plain onClick={() => navigate('/projects')} className='text-sm'>
             <ArrowLeftIcon className="w-4 h-4" />
-            Back to Projects
           </Button>
           
           <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600" />
           
           <div>
-            <Heading level={1} className="text-lg">
+            <Subheading level={1} className="text-lg">
               {project?.name || 'Untitled Project'}
-            </Heading>
-            {project?.context && (
+            </Subheading>
+            {/* {project?.context && (
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-0.5">
                 {project.context}
               </p>
-            )}
+            )} */}
           </div>
           
-          <Badge color="lime">Active</Badge>
+          {/* <Badge color="lime">Active</Badge> */}
         </div>
 
         <div className="flex items-center gap-3">
-          <Button size="sm" outline>
-            <ShareIcon className="w-4 h-4" />
-            Share
+          {/* Save Status Indicator */}
+          <SaveStatusIndicator 
+            isDirty={isDirty}
+            isSaving={isSaving}
+            lastSaved={lastSaved}
+          />
+
+          {/* Save Button */}
+          <Button 
+            size="xs" 
+            onClick={saveProject}
+            disabled={isSaving || !isDirty}
+            className={isDirty && !isSaving ? 'bg-blue-600 text-white' : ''}
+          >
+            {isSaving ? 'Saving...' : 'Save'}
           </Button>
           
-          <Button size="sm" color="indigo">
+          <Button size="xs" outline>
+            <ShareIcon className="w-4 h-4" />
+            {/* Share */}
+          </Button>
+          
+          <Button size="xs" outline>
             <ArrowDownTrayIcon className="w-4 h-4" />
-            Export
+            {/* Export */}
           </Button>
 
-          <Dropdown>
+          {/* <Dropdown>
             <DropdownButton plain>
               <EllipsisVerticalIcon className="w-5 h-5" />
             </DropdownButton>
@@ -176,16 +210,16 @@ const EditorPage = () => {
               <DropdownItem>Duplicate Project</DropdownItem>
               <DropdownItem>Delete Project</DropdownItem>
             </DropdownMenu>
-          </Dropdown>
+          </Dropdown> */}
         </div>
       </header>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         
-        {/* Conditional Video Preview Section - Only show when there are clips */}
+        {/* Conditional Video Preview Section - Takes remaining space */}
         {hasAnyClips && (
-          <div className="h-120 flex flex-col min-w-0 bg-zinc-50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800">
+          <div className="flex-1 flex flex-col min-w-0 bg-zinc-50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800">
             <VideoPreview 
               ref={videoRef}
               videoFile={videoFile}
@@ -199,7 +233,7 @@ const EditorPage = () => {
           </div>
         )}
 
-        {/* Timeline Section */}
+        {/* Timeline Section - Fixed height at bottom */}
         <div className="h-auto">
           <Timeline 
             currentTime={currentTime} 

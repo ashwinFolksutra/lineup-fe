@@ -34,6 +34,11 @@ const initialState = {
   
   // UI state - single clip selection only
   selectedClips: null, // Changed from Set to single string or null
+  
+  // Auto-save state
+  isDirty: false, // Tracks if there are unsaved changes
+  lastSaved: null, // Timestamp of last save
+  isSaving: false, // Currently saving status
 };
 
 const tracksSlice = createSlice({
@@ -72,6 +77,9 @@ const tracksSlice = createSlice({
         if (clipEnd > state.duration) {
           state.duration = Math.ceil(clipEnd + 2);
         }
+        
+        // Mark as dirty
+        state.isDirty = true;
       }
     },
     
@@ -91,6 +99,11 @@ const tracksSlice = createSlice({
             state.duration = Math.ceil(clipEnd + 2);
           }
         });
+        
+        // Mark as dirty if clips were added
+        if (clips.length > 0) {
+          state.isDirty = true;
+        }
       }
     },
     
@@ -108,6 +121,9 @@ const tracksSlice = createSlice({
           if (clipEnd > state.duration) {
             state.duration = Math.ceil(clipEnd + 2);
           }
+          
+          // Mark as dirty
+          state.isDirty = true;
         }
       }
     },
@@ -116,16 +132,33 @@ const tracksSlice = createSlice({
       const { trackId, clipId } = action.payload;
       const track = state.tracks.find(t => t.id === trackId);
       if (track) {
+        const originalLength = track.clips.length;
         track.clips = track.clips.filter(c => c.id !== clipId);
+        
+        // Mark as dirty if a clip was actually removed
+        if (track.clips.length < originalLength) {
+          state.isDirty = true;
+        }
       }
     },
     
     removeSelectedClips: (state) => {
       if (!state.selectedClips) return;
       
+      let clipRemoved = false;
       state.tracks.forEach(track => {
+        const originalLength = track.clips.length;
         track.clips = track.clips.filter(clip => clip.id !== state.selectedClips);
+        if (track.clips.length < originalLength) {
+          clipRemoved = true;
+        }
       });
+      
+      // Mark as dirty if a clip was removed
+      if (clipRemoved) {
+        state.isDirty = true;
+      }
+      
       state.selectedClips = null;
     },
     
@@ -176,6 +209,9 @@ const tracksSlice = createSlice({
               
               // Replace the original clip with the two new clips
               track.clips.splice(clipIndex, 1, firstClip, secondClip);
+              
+              // Mark as dirty
+              state.isDirty = true;
             }
           }
         }
@@ -192,6 +228,7 @@ const tracksSlice = createSlice({
         const clip = track.clips.find(c => c.id === clipId);
         if (clip) {
           clip.file = file;
+          state.isDirty = true;
         }
       }
     },
@@ -290,15 +327,21 @@ const tracksSlice = createSlice({
     // Batch operations
     updateMultipleClips: (state, action) => {
       const updates = action.payload; // Array of { trackId, clipId, updates }
+      let hasUpdates = false;
       updates.forEach(({ trackId, clipId, updates: clipUpdates }) => {
         const track = state.tracks.find(t => t.id === trackId);
         if (track) {
           const clip = track.clips.find(c => c.id === clipId);
           if (clip) {
             Object.assign(clip, clipUpdates);
+            hasUpdates = true;
           }
         }
       });
+      
+      if (hasUpdates) {
+        state.isDirty = true;
+      }
     },
     
     // Replace all clips for a track (for backward compatibility)
@@ -310,7 +353,41 @@ const tracksSlice = createSlice({
           ...clip,
           id: clip.id || Date.now().toString() + Math.random(),
         }));
+        state.isDirty = true;
       }
+    },
+    
+    // Auto-save management
+    setDirty: (state, action) => {
+      state.isDirty = action.payload !== false; // Default to true if no payload
+    },
+    
+    setSaving: (state, action) => {
+      state.isSaving = action.payload;
+    },
+    
+    setSaveSuccess: (state) => {
+      state.isDirty = false;
+      state.isSaving = false;
+      state.lastSaved = Date.now();
+    },
+    
+    setSaveError: (state) => {
+      state.isSaving = false;
+      // Keep isDirty as true since save failed
+    },
+    
+    // Load project data and mark as clean
+    loadProjectData: (state, action) => {
+      const { tracks } = action.payload;
+      
+      if (tracks && Array.isArray(tracks)) {
+        state.tracks = tracks;
+      }
+      
+      // Mark as clean since we just loaded from server
+      state.isDirty = false;
+      state.lastSaved = Date.now();
     },
   },
 });
@@ -339,6 +416,11 @@ export const {
   clearSelection,
   updateMultipleClips,
   replaceTrackClips,
+  setDirty,
+  setSaving,
+  setSaveSuccess,
+  setSaveError,
+  loadProjectData,
 } = tracksSlice.actions;
 
 export default tracksSlice.reducer; 
